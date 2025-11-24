@@ -2,33 +2,41 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"image/color"
 	"log"
 	"math/rand"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 var (
-	numSharks  = flag.Int("NumShark", 40, "Starting population of sharks")
-	numFish    = flag.Int("NumFish", 600, "Starting population of fish")
-	fishBreed  = flag.Int("FishBreed", 8, "Number of time units that pass before a fish can reproduce")
-	sharkBreed = flag.Int("SharkBreed", 16, "Number of time units that must pass before a shark can reproduce")
-	starve     = flag.Int("Starve", 6, "Period of time a shark can go without food before dying")
-	gridSize   = flag.Int("GridSize", 100, "Dimensions of world")
-	threads    = flag.Int("Threads", 1, "Number of threads to use (TODO: parallelize update)")
+	numSharks    = flag.Int("NumShark", 300, "Starting population of sharks")
+	numFish      = flag.Int("NumFish", 6000, "Starting population of fish")
+	fishBreed    = flag.Int("FishBreed", 6, "Number of time units that pass before a fish can reproduce")
+	sharkBreed   = flag.Int("SharkBreed", 16, "Number of time units that must pass before a shark can reproduce")
+	starve       = flag.Int("Starve", 4, "Period of time a shark can go without food before dying")
+	gridSize     = flag.Int("GridSize", 100, "Dimensions of world")
+	threads      = flag.Int("Threads", runtime.NumCPU(), "Number of concurrent goroutines to use")
+	benchmark    = flag.Bool("benchmark", false, "Run in benchmark mode (no graphics)")
+	steps        = flag.Int("steps", 20000, "Number of steps for benchmark")
+	windowWidth  = flag.Int("width", 1400, "Window width")
+	windowHeight = flag.Int("height", 900, "Window height")
 )
 
 const (
-	pixSize = 5
+	pixSize = 2
 )
 
 type CreatureType int
 
 const (
-	Water CreatureType = iota
-	Fish
+	Fish CreatureType = iota
 	Shark
 )
 
@@ -37,266 +45,344 @@ type Creature struct {
 	age          int
 	energy       int
 	creatureType CreatureType
-	moved        bool
 }
 
 type World struct {
 	width, height int
 	screenWidth   int
 	screenHeight  int
+	grid          []*Creature
+	nextGrid      []*Creature
 
-	grid      []CreatureType
-	creatures []*Creature
-	rng       *rand.Rand
+	goroutineCount int
 }
 
-func NewWorld(size int) *World {
+func NewWorld(width, height, goroutineCount int) *World {
 	w := &World{
-		width:        size,
-		height:       size,
-		screenWidth:  size * pixSize,
-		screenHeight: size * pixSize,
-		grid:         make([]CreatureType, size*size),
-		creatures:    make([]*Creature, 0),
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		width:          width,
+		height:         height,
+		screenWidth:    width * pixSize,
+		screenHeight:   height * pixSize,
+		grid:           make([]*Creature, width*height),
+		nextGrid:       make([]*Creature, width*height),
+		goroutineCount: goroutineCount,
 	}
 	return w
 }
 
 func (w *World) idx(x, y int) int {
+	if x < 0 {
+		x += w.width
+	} else if x >= w.width {
+		x -= w.width
+	}
+	if y < 0 {
+		y += w.height
+	} else if y >= w.height {
+		y -= w.height
+	}
 	return x + y*w.width
 }
 
 func (w *World) InitPopulation(numSharks, numFish int) {
-	total := numSharks + numFish
-	if total <= 0 {
-		total = 1
+	for i := range w.grid {
+		w.grid[i] = nil
 	}
-	w.creatures = make([]*Creature, 0, total)
+
+	count := 0
+	limit := w.width * w.height
+	if numFish+numSharks > limit {
+		numFish = limit / 2
+		numSharks = limit / 2
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for i := 0; i < numFish; i++ {
-		x, y := w.getRandomEmptyCell()
-		if x != -1 {
-			fish := &Creature{x: x, y: y, age: 0, creatureType: Fish}
-			w.creatures = append(w.creatures, fish)
-			w.grid[w.idx(x, y)] = Fish
-		}
-	}
-	for i := 0; i < numSharks; i++ {
-		x, y := w.getRandomEmptyCell()
-		if x != -1 {
-			shark := &Creature{x: x, y: y, age: 0, energy: *starve, creatureType: Shark}
-			w.creatures = append(w.creatures, shark)
-			w.grid[w.idx(x, y)] = Shark
-		}
-	}
-}
-
-// getRandomEmptyCell finds a random empty cell
-func (w *World) getRandomEmptyCell() (int, int) {
-	attempts := 0
-	maxAttempts := w.width * w.height * 2
-	for attempts < maxAttempts {
-		x := w.rng.Intn(w.width)
-		y := w.rng.Intn(w.height)
-		if w.grid[w.idx(x, y)] == Water {
-			return x, y
-		}
-		attempts++
-	}
-	return -1, -1
-}
-
-// compactCreatures removes entries whose creatureType == Water or dead sharks.
-// This reduces iteration overhead by keeping creatures slice small.
-func (w *World) compactCreatures() {
-	out := w.creatures[:0]
-	for _, c := range w.creatures {
-		if c == nil {
-			continue
-		}
-		if c.creatureType == Water {
-			// ensure grid cell is water if creature marked as water
-			if w.grid[w.idx(c.x, c.y)] == c.creatureType {
-				w.grid[w.idx(c.x, c.y)] = Water
-			}
-			continue
-		}
-		if c.creatureType == Shark && c.energy <= 0 {
-			// remove shark from grid
-			if w.grid[w.idx(c.x, c.y)] == Shark {
-				w.grid[w.idx(c.x, c.y)] = Water
-			}
-			continue
-		}
-		out = append(out, c)
-	}
-	w.creatures = out
-}
-
-// Update advances the simulation by one tick
-func (w *World) Update() {
-	// 1) Remove already-dead or eaten creatures to reduce work.
-	w.compactCreatures()
-
-	// 2) local copies of global parameters to avoid repeated pointer loads
-	fb := *fishBreed
-	sb := *sharkBreed
-	s := *starve
-
-	// 3) reset moved flags
-	for _, c := range w.creatures {
-		c.moved = false
-	}
-
-	// Estimate new creatures count to minimize allocations
-	newCreatures := make([]*Creature, 0, len(w.creatures)/4+10)
-
-	// Process each creature
-	for _, c := range w.creatures {
-		// skip any creature that might have been turned to Water earlier (safety)
-		if c.moved || c.creatureType == Water || (c.creatureType == Shark && c.energy <= 0) {
-			continue
-		}
-		switch c.creatureType {
-		case Shark:
-			w.updateShark(c, &newCreatures, sb, s)
-		case Fish:
-			w.updateFish(c, &newCreatures, fb)
-		}
-	}
-
-	// Append newborns
-	if len(newCreatures) > 0 {
-		w.creatures = append(w.creatures, newCreatures...)
-	}
-
-	// Final cleanup
-	w.compactCreatures()
-}
-
-// helper: neighbor directions (N,E,S,W)
-var directions = [][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
-
-// findNeighborsByType finds neighbors of a specific type
-func (w *World) findNeighborsByType(x, y int, creatureType CreatureType) [][2]int {
-	neighbors := make([][2]int, 0, 4)
-	for _, d := range directions {
-		nx := (x + d[0] + w.width) % w.width
-		ny := (y + d[1] + w.height) % w.height
-		if w.grid[w.idx(nx, ny)] == creatureType {
-			neighbors = append(neighbors, [2]int{nx, ny})
-		}
-	}
-	return neighbors
-}
-
-// updateShark updates a shark's state
-func (w *World) updateShark(c *Creature, newCreatures *[]*Creature, sharkBreedParam, starveParam int) {
-	c.age++
-	c.energy--
-
-	// Shark dies if energy reaches zero
-	if c.energy <= 0 {
-		// mark as dead; will be compacted later
-		c.creatureType = Water
-		w.grid[w.idx(c.x, c.y)] = Water
-		return
-	}
-
-	oldX, oldY := c.x, c.y
-	newX, newY := oldX, oldY
-
-	// Look for fish to eat first
-	fishNeighbors := w.findNeighborsByType(c.x, c.y, Fish)
-	if len(fishNeighbors) > 0 {
-		// Eat a fish
-		target := fishNeighbors[w.rng.Intn(len(fishNeighbors))]
-		newX, newY = target[0], target[1]
-
-		// Remove fish from grid and mark it Water in creatures list by scanning creatures.
-		// (We avoid a full grid scan by checking list — it's acceptable for moderate sizes.)
-		for _, fish := range w.creatures {
-			if fish.x == newX && fish.y == newY && fish.creatureType == Fish {
-				fish.creatureType = Water // mark eaten fish
+		for {
+			x, y := r.Intn(w.width), r.Intn(w.height)
+			idx := w.idx(x, y)
+			if w.grid[idx] == nil {
+				w.grid[idx] = &Creature{x: x, y: y, age: r.Intn(*fishBreed), creatureType: Fish}
+				count++
 				break
 			}
 		}
-		c.energy += starveParam
-	} else {
-		// Move to empty cell if no fish found
-		emptyNeighbors := w.findNeighborsByType(c.x, c.y, Water)
-		if len(emptyNeighbors) > 0 {
-			target := emptyNeighbors[w.rng.Intn(len(emptyNeighbors))]
-			newX, newY = target[0], target[1]
-		}
 	}
 
-	// Move shark if position changed
-	if newX != oldX || newY != oldY {
-		w.grid[w.idx(oldX, oldY)] = Water
-		c.x, c.y = newX, newY
-		w.grid[w.idx(newX, newY)] = Shark
-	}
-	c.moved = true
-
-	// Reproduction
-	if c.age >= sharkBreedParam {
-		c.age = 0
-		// Create new shark in old position if it's empty
-		if w.grid[w.idx(oldX, oldY)] == Water {
-			newShark := &Creature{x: oldX, y: oldY, age: 0, energy: starveParam, creatureType: Shark}
-			w.grid[w.idx(oldX, oldY)] = Shark
-			*newCreatures = append(*newCreatures, newShark)
+	for i := 0; i < numSharks; i++ {
+		for {
+			x, y := r.Intn(w.width), r.Intn(w.height)
+			idx := w.idx(x, y)
+			if w.grid[idx] == nil {
+				w.grid[idx] = &Creature{x: x, y: y, age: r.Intn(*sharkBreed), energy: *starve, creatureType: Shark}
+				count++
+				break
+			}
 		}
 	}
 }
 
-// updateFish updates a fish's state
-func (w *World) updateFish(c *Creature, newCreatures *[]*Creature, fishBreedParam int) {
-	c.age++
+func (w *World) Update() {
+	var wg sync.WaitGroup
 
-	oldX, oldY := c.x, c.y
-	newX, newY := oldX, oldY
-
-	emptyNeighbors := w.findNeighborsByType(c.x, c.y, Water)
-	if len(emptyNeighbors) > 0 {
-		target := emptyNeighbors[w.rng.Intn(len(emptyNeighbors))]
-		newX, newY = target[0], target[1]
+	rowsPerGoroutine := (w.height + w.goroutineCount - 1) / w.goroutineCount
+	if rowsPerGoroutine < 1 {
+		rowsPerGoroutine = 1
 	}
 
-	// Move fish if position changed
-	if newX != oldX || newY != oldY {
-		w.grid[w.idx(oldX, oldY)] = Water
-		c.x, c.y = newX, newY
-		w.grid[w.idx(newX, newY)] = Fish
-	}
-	c.moved = true
+	for i := 0; i < w.goroutineCount; i++ {
+		startY := i * rowsPerGoroutine
+		if startY >= w.height {
+			break
+		}
+		endY := startY + rowsPerGoroutine
+		if endY > w.height {
+			endY = w.height
+		}
 
-	// Reproduction
-	if c.age >= fishBreedParam {
-		c.age = 0
-		if w.grid[w.idx(oldX, oldY)] == Water {
-			newFish := &Creature{x: oldX, y: oldY, age: 0, creatureType: Fish}
-			w.grid[w.idx(oldX, oldY)] = Fish
-			*newCreatures = append(*newCreatures, newFish)
+		wg.Add(1)
+		go func(id, sY, eY int) {
+			defer wg.Done()
+			seed := time.Now().UnixNano() + int64(id*100)
+			rng := rand.New(rand.NewSource(seed))
+			w.processSlice(sY, eY, rng)
+		}(i, startY, endY)
+	}
+
+	wg.Wait()
+
+	w.grid, w.nextGrid = w.nextGrid, w.grid
+
+	for i := range w.nextGrid {
+		w.nextGrid[i] = nil
+	}
+}
+
+func (w *World) processSlice(startY, endY int, rng *rand.Rand) {
+	dirs := [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
+
+	for y := startY; y < endY; y++ {
+		for x := 0; x < w.width; x++ {
+			idx := w.idx(x, y)
+			c := w.grid[idx]
+
+			if c == nil {
+				continue
+			}
+
+			nextC := *c
+			nextC.age++
+
+			moved := false
+
+			if nextC.creatureType == Fish {
+				perm := rng.Perm(4)
+				for _, i := range perm {
+					dx, dy := dirs[i][0], dirs[i][1]
+					nx, ny := x+dx, y+dy
+					if nx < 0 {
+						nx += w.width
+					} else if nx >= w.width {
+						nx -= w.width
+					}
+					if ny < 0 {
+						ny += w.height
+					} else if ny >= w.height {
+						ny -= w.height
+					}
+
+					nIdx := w.idx(nx, ny)
+
+					if w.grid[nIdx] == nil {
+						// 尝试原子写入 nextGrid (并发安全)
+						// 这里的 atomic.CompareAndSwapPointer 相当于：
+						// if nextGrid[nIdx] == nil { nextGrid[nIdx] = &nextC; return true } else { return false }
+						if atomic.CompareAndSwapPointer(
+							(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[nIdx])),
+							nil,
+							unsafe.Pointer(&nextC)) {
+
+							moved = true
+
+							if c.age >= *fishBreed {
+								nextC.age = 0
+								baby := &Creature{x: x, y: y, age: 0, creatureType: Fish}
+								atomic.CompareAndSwapPointer(
+									(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[idx])),
+									nil,
+									unsafe.Pointer(baby))
+							}
+							break
+						}
+					}
+				}
+
+			} else {
+				nextC.energy--
+				if nextC.energy <= 0 {
+					continue
+				}
+
+				perm := rng.Perm(4)
+				ate := false
+				for _, i := range perm {
+					dx, dy := dirs[i][0], dirs[i][1]
+					nx, ny := x+dx, y+dy
+					if nx < 0 {
+						nx += w.width
+					} else if nx >= w.width {
+						nx -= w.width
+					}
+					if ny < 0 {
+						ny += w.height
+					} else if ny >= w.height {
+						ny -= w.height
+					}
+					nIdx := w.idx(nx, ny)
+
+					// 检查 grid 中该位置是否有鱼
+					target := w.grid[nIdx]
+					if target != nil && target.creatureType == Fish {
+						// 吃鱼！
+						nextC.energy += *starve // 恢复能量
+						// 尝试移动到鱼的位置
+						if atomic.CompareAndSwapPointer(
+							(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[nIdx])),
+							nil,
+							unsafe.Pointer(&nextC)) {
+
+							moved = true
+							ate = true
+
+							// 繁殖逻辑
+							if c.age >= *sharkBreed {
+								nextC.age = 0
+								baby := &Creature{x: x, y: y, age: 0, energy: *starve, creatureType: Shark}
+								atomic.CompareAndSwapPointer(
+									(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[idx])),
+									nil,
+									unsafe.Pointer(baby))
+							}
+							break
+						}
+					}
+				}
+
+				// 优先级 2: 没吃到鱼，像鱼一样移动
+				if !ate {
+					// 重新打乱方向 (或者继续使用上面的 perm，为了随机性更好建议重新打乱或继续遍历)
+					// 简单起见，继续尝试移动到空位
+					perm2 := rng.Perm(4)
+					for _, i := range perm2 {
+						dx, dy := dirs[i][0], dirs[i][1]
+						nx, ny := x+dx, y+dy
+						if nx < 0 {
+							nx += w.width
+						} else if nx >= w.width {
+							nx -= w.width
+						}
+						if ny < 0 {
+							ny += w.height
+						} else if ny >= w.height {
+							ny -= w.height
+						}
+						nIdx := w.idx(nx, ny)
+
+						if w.grid[nIdx] == nil {
+							if atomic.CompareAndSwapPointer(
+								(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[nIdx])),
+								nil,
+								unsafe.Pointer(&nextC)) {
+
+								moved = true
+								if c.age >= *sharkBreed {
+									nextC.age = 0
+									baby := &Creature{x: x, y: y, age: 0, energy: *starve, creatureType: Shark}
+									atomic.CompareAndSwapPointer(
+										(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[idx])),
+										nil,
+										unsafe.Pointer(baby))
+								}
+								break
+							}
+						}
+					}
+				}
+			}
+
+			// 如果没有移动（被堵住了，或者没抢到位置），留在原地
+			if !moved {
+				// 尝试把 update 后的自己写入 nextGrid 的当前位置
+				// 注意：如果是鲨鱼，能量已经减少了
+				// 繁殖逻辑：不移动通常不繁殖（根据 Wa-Tor 规则，繁殖需要移动产生空位）
+				atomic.CompareAndSwapPointer(
+					(*unsafe.Pointer)(unsafe.Pointer(&w.nextGrid[idx])),
+					nil,
+					unsafe.Pointer(&nextC))
+			}
 		}
 	}
 }
 
-/* Game implements ebiten.Game */
+func runBenchmark() {
+	coreConfigs := []int{1, 2, 4, 8}
+	results := make(map[int]time.Duration, 3)
+
+	fmt.Println("=== Wa-Tor Simulation Benchmark ===")
+	fmt.Printf("Grid Size: %d, Sharks: %d, Fish: %d, Steps: %d\n",
+		*gridSize, *numSharks, *numFish, *steps)
+	fmt.Println("-----------------------------------")
+
+	for _, c := range coreConfigs {
+		world := NewWorld(*gridSize, *gridSize, c)
+		world.InitPopulation(*numSharks, *numFish)
+
+		for i := 0; i < 50; i++ {
+			world.Update()
+		}
+		runtime.GC()
+
+		start := time.Now()
+		for i := 0; i < *steps; i++ {
+			world.Update()
+		}
+		elapsed := time.Since(start)
+		results[c] = elapsed
+
+		fmt.Printf("Threads: %d, Time: %v\n", c, elapsed)
+	}
+
+	generateSpeedupReport(results)
+}
+
+func generateSpeedupReport(results map[int]time.Duration) {
+	baseTime := results[1].Seconds()
+	fmt.Println("\n=== Speedup Report ===")
+	fmt.Printf("Baseline (1 Thread): %.4fs\n", baseTime)
+	fmt.Println("Speedup relative to baseline:")
+
+	for _, c := range []int{2, 4, 8} {
+		if t, exists := results[c]; exists {
+			ts := t.Seconds()
+			speedup := baseTime / ts
+			efficiency := (speedup / float64(c)) * 100
+			fmt.Printf("%d Threads: %.4fs (Speedup: %.2fx, Efficiency: %.1f%%)\n",
+				c, ts, speedup, efficiency)
+		}
+	}
+}
+
 type Game struct {
 	world    *World
 	fishImg  *ebiten.Image
 	sharkImg *ebiten.Image
 }
 
-// NewGame creates a new Game
 func NewGame() *Game {
-	w := NewWorld(*gridSize)
+	w := NewWorld(*windowWidth/pixSize, *windowHeight/pixSize, *threads)
 	w.InitPopulation(*numSharks, *numFish)
 
-	// create small sprites for fish and shark to speed up drawing
 	fishImg := ebiten.NewImage(pixSize, pixSize)
 	fishImg.Fill(color.RGBA{80, 212, 80, 255})
 	sharkImg := ebiten.NewImage(pixSize, pixSize)
@@ -305,27 +391,26 @@ func NewGame() *Game {
 	return &Game{world: w, fishImg: fishImg, sharkImg: sharkImg}
 }
 
-// Update proceeds the game state.
 func (g *Game) Update() error {
 	g.world.Update()
 	return nil
 }
 
-// Draw draws the game screen.
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Fill background once
 	screen.Fill(color.Black)
-
 	op := &ebiten.DrawImageOptions{}
-	for _, c := range g.world.creatures {
-		if c.creatureType == Fish {
+	for i, c := range g.world.grid {
+		if c != nil {
 			op.GeoM.Reset()
-			op.GeoM.Translate(float64(c.x*pixSize), float64(c.y*pixSize))
-			screen.DrawImage(g.fishImg, op)
-		} else if c.creatureType == Shark {
-			op.GeoM.Reset()
-			op.GeoM.Translate(float64(c.x*pixSize), float64(c.y*pixSize))
-			screen.DrawImage(g.sharkImg, op)
+			x := i % g.world.width
+			y := i / g.world.width
+			op.GeoM.Translate(float64(x*pixSize), float64(y*pixSize))
+
+			if c.creatureType == Fish {
+				screen.DrawImage(g.fishImg, op)
+			} else {
+				screen.DrawImage(g.sharkImg, op)
+			}
 		}
 	}
 }
@@ -336,9 +421,17 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 
 func main() {
 	flag.Parse()
+	rand.Seed(time.Now().UnixNano())
 
-	ebiten.SetWindowSize((*gridSize)*pixSize, (*gridSize)*pixSize)
-	ebiten.SetWindowTitle("Wator Simulation (optimized)")
+	if *benchmark {
+		runBenchmark()
+		return
+	}
+
+	ebiten.SetWindowSize(*windowWidth, *windowHeight)
+	ebiten.SetWindowTitle(fmt.Sprintf("Wa-Tor (Threads: %d, Size: %dx%d)", *threads, *windowWidth, *windowHeight))
+
+	ebiten.SetVsyncEnabled(false)
 
 	if err := ebiten.RunGame(NewGame()); err != nil {
 		log.Fatal(err)
