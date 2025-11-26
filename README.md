@@ -22,6 +22,13 @@ This project implements the **Wa-Tor simulation** as described in A.K. Dewdney's
 - **Doxygen Documentation**: Professionally documented code with API references
 - **Performance Analysis**: Built-in speedup and efficiency calculations
 
+## Project files
+
+- **[main.go](main.go)**: The main source code file that runs the Wa-Tor simulation program.
+- **[go.sum](go.sum)**: The file that ensures the integrity of the project's dependencies.
+- **[go.mod](go.mod)**: The module file that defines the Go project's dependencies.
+- **[Wa-Tor Report.pdf](Wa-Tor-Report.pdf)**: A document file containing the project report or analysis.
+
 ## Installation
 
 ### Prerequisites
@@ -35,7 +42,7 @@ This project implements the **Wa-Tor simulation** as described in A.K. Dewdney's
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/wa-tor-simulation.git
+git clone https://github.com/Iris-Jiaa/Wa-TorProject-Changyu-Jia.git
 cd wa-tor-simulation
 ```
 
@@ -91,6 +98,8 @@ The project includes built-in performance analysis to measure speedup across dif
 
 ### Expected Output Format
 
+
+
 === Wa-Tor Simulation Benchmark ===
 
 Grid Size: 300, Sharks: 6000, Fish: 70000, Steps: 4000 <br>
@@ -102,7 +111,7 @@ Threads: 8, Time: 6.7240s <br>
 === Speedup Report ===
 
 Speedup relative to baseline: <br>
-1 Threads: 15.1875s (Speedup: 1.00x, Efficiency: 100.0%)
+1 Threads: 15.1875s (Speedup: 1.00x, Efficiency: 100.0%)<br>
 2 Threads: 9.2899s (Speedup: 1.63x, Efficiency: 81.7%) <br>
 4 Threads: 6.8986s (Speedup: 2.20x, Efficiency: 55.0%) <br>
 8 Threads: 6.7240s (Speedup: 2.26x, Efficiency: 28.2%) <br>
