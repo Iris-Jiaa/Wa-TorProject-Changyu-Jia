@@ -24,10 +24,10 @@ This project implements the **Wa-Tor simulation** as described in A.K. Dewdney's
 
 ## Project files
 
-- **[main.go](main.go)**: The main source code file that runs the Wa-Tor simulation program.
-- **[go.sum](go.sum)**: The file that ensures the integrity of the project's dependencies.
-- **[go.mod](go.mod)**: The module file that defines the Go project's dependencies.
-- **[Wa-Tor Report.pdf](Wa-Tor-Report.pdf)**: A document file containing the project report or analysis.
+- **[main.go](./main.go)**: The main source code file that runs the Wa-Tor simulation program.
+- **[go.sum](./go.sum)**: The file that ensures the integrity of the project's dependencies.
+- **[go.mod](./go.mod)**: The module file that defines the Go project's dependencies.
+- **[Wa-Tor Report.pdf](./Wa-Tor-Report.pdf)**: A document file containing the project report or analysis.
 
 ## Installation
 
@@ -98,7 +98,7 @@ The project includes built-in performance analysis to measure speedup across dif
 
 ### Expected Output Format
 
-
+![Simple graphical output representing](./WaTor.gif)
 
 === Wa-Tor Simulation Benchmark ===
 
