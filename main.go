@@ -1,14 +1,11 @@
-/**
- * @file main.go
- * @brief Wa-Tor simulation implementation
- * @author Changyu Jia
- * @date 2025
- *
- * This file implements the Wa-Tor ecological simulation as described in
- * A.K. Dewdney's Scientific American article "Sharks and Fish wage an
- * ecological war on the toroidal planet of Wa-Tor".
- */
-
+// Wa-Tor simulation implementation
+//
+// This file implements the Wa-Tor ecological simulation as described in
+// A.K. Dewdney's Scientific American article "Sharks and Fish wage an
+// ecological war on the toroidal planet of Wa-Tor".
+//
+// Author: Changyu Jia
+// Date: 2025
 package main
 
 import (
@@ -41,55 +38,49 @@ var (
 	windowHeight = flag.Int("height", 900, "Window height")
 )
 
-const (
-	pixSize = 2 ///< Pixel size for rendering each cell
-)
+// Pixel size for rendering each cell
+const pixSize = 2
 
-/**
- * @brief Type of creature in the simulation
- */
+// CreatureType represents the type of creature in the simulation
 type CreatureType int
 
 const (
-	Fish  CreatureType = iota ///< Fish creature type
-	Shark                     ///< Shark creature type
+	Fish  CreatureType = iota // Fish creature type
+	Shark                     // Shark creature type
 )
 
-/**
- * @brief Represents an individual creature in the Wa-Tor world
- *
- * Each creature has a position, age, energy (for sharks), and type.
- * The simulation evolves based on the rules governing these creatures.
- */
+// Creature represents an individual creature in the Wa-Tor world.
+//
+// Each creature has a position, age, energy (for sharks), and type.
+// The simulation evolves based on the rules governing these creatures.
 type Creature struct {
-	x, y         int          ///< Grid coordinates of the creature
-	age          int          ///< Age in chronons (time steps)
-	energy       int          ///< Energy level (sharks only)
-	creatureType CreatureType ///< Type of creature (Fish or Shark)
+	x, y         int          // Grid coordinates of the creature
+	age          int          // Age in chronons (time steps)
+	energy       int          // Energy level (sharks only)
+	creatureType CreatureType // Type of creature (Fish or Shark)
 }
 
-/**
- * @brief The main world grid representing the Wa-Tor planet
- *
- * The world is a toroidal grid (wraps around edges) containing creatures.
- * Uses double buffering (grid and nextGrid) for concurrent updates.
- */
+// World represents the main world grid representing the Wa-Tor planet.
+//
+// The world is a toroidal grid (wraps around edges) containing creatures.
+// Uses double buffering (grid and nextGrid) for concurrent updates.
 type World struct {
-	width, height  int         ///< Dimensions of the world grid
-	screenWidth    int         ///< Screen width in pixels
-	screenHeight   int         ///< Screen height in pixels
-	grid           []*Creature ///< Current state grid
-	nextGrid       []*Creature ///< Next state grid (double buffering)
-	goroutineCount int         ///< Number of goroutines for parallel processing
+	width, height  int         // Dimensions of the world grid
+	screenWidth    int         // Screen width in pixels
+	screenHeight   int         // Screen height in pixels
+	grid           []*Creature // Current state grid
+	nextGrid       []*Creature // Next state grid (double buffering)
+	goroutineCount int         // Number of goroutines for parallel processing
 }
 
-/**
- * @brief Creates a new World instance
- * @param width Grid width
- * @param height Grid height
- * @param goroutineCount Number of goroutines for parallel processing
- * @return Pointer to the newly created World
- */
+// NewWorld creates a new World instance.
+//
+// Parameters:
+//   - width: Grid width
+//   - height: Grid height
+//   - goroutineCount: Number of goroutines for parallel processing
+//
+// Returns a pointer to the newly created World.
 func NewWorld(width, height, goroutineCount int) *World {
 	w := &World{
 		width:          width,
@@ -103,12 +94,13 @@ func NewWorld(width, height, goroutineCount int) *World {
 	return w
 }
 
-/**
- * @brief Converts grid coordinates to array index with toroidal wrapping
- * @param x X coordinate
- * @param y Y coordinate
- * @return Array index for the given coordinates
- */
+// idx converts grid coordinates to array index with toroidal wrapping.
+//
+// Parameters:
+//   - x: X coordinate
+//   - y: Y coordinate
+//
+// Returns the array index for the given coordinates.
 func (w *World) idx(x, y int) int {
 	if x < 0 {
 		x += w.width
@@ -123,14 +115,14 @@ func (w *World) idx(x, y int) int {
 	return x + y*w.width
 }
 
-/**
- * @brief Initializes the world with starting populations of sharks and fish
- * @param numSharks Initial number of sharks
- * @param numFish Initial number of fish
- *
- * Randomly places creatures on the grid, ensuring no two creatures occupy
- * the same cell. If total creatures exceed grid capacity, adjusts populations.
- */
+// InitPopulation initializes the world with starting populations of sharks and fish.
+//
+// Parameters:
+//   - numSharks: Initial number of sharks
+//   - numFish: Initial number of fish
+//
+// Randomly places creatures on the grid, ensuring no two creatures occupy
+// the same cell. If total creatures exceed grid capacity, adjusts populations.
 func (w *World) InitPopulation(numSharks, numFish int) {
 	for i := range w.grid {
 		w.grid[i] = nil
@@ -172,12 +164,10 @@ func (w *World) InitPopulation(numSharks, numFish int) {
 	}
 }
 
-/**
- * @brief Advances the simulation by one time step (chronon)
- *
- * Processes the world in parallel using multiple goroutines.
- * Implements double buffering to avoid race conditions.
- */
+// Update advances the simulation by one time step (chronon).
+//
+// Processes the world in parallel using multiple goroutines.
+// Implements double buffering to avoid race conditions.
 func (w *World) Update() {
 	var wg sync.WaitGroup
 
@@ -218,17 +208,17 @@ func (w *World) Update() {
 	}
 }
 
-/**
- * @brief Processes a slice of the world grid
- * @param startY Starting Y coordinate (inclusive)
- * @param endY Ending Y coordinate (exclusive)
- * @param rng Random number generator for the goroutine
- *
- * Applies Wa-Tor rules to each creature in the slice:
- * - Fish move randomly and reproduce after FishBreed chronons
- * - Sharks hunt fish, lose energy, and reproduce after SharkBreed chronons
- * - Sharks die when energy reaches zero
- */
+// processSlice processes a slice of the world grid.
+//
+// Parameters:
+//   - startY: Starting Y coordinate (inclusive)
+//   - endY: Ending Y coordinate (exclusive)
+//   - rng: Random number generator for the goroutine
+//
+// Applies Wa-Tor rules to each creature in the slice:
+// - Fish move randomly and reproduce after FishBreed chronons
+// - Sharks hunt fish, lose energy, and reproduce after SharkBreed chronons
+// - Sharks die when energy reaches zero
 func (w *World) processSlice(startY, endY int, rng *rand.Rand) {
 	// Directions: north, east, south, west
 	dirs := [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
@@ -397,12 +387,10 @@ func (w *World) processSlice(startY, endY int, rng *rand.Rand) {
 	}
 }
 
-/**
- * @brief Runs the simulation in benchmark mode without graphics
- *
- * Measures performance with different numbers of threads (1, 2, 4, 8)
- * and generates a speedup report comparing the results.
- */
+// runBenchmark runs the simulation in benchmark mode without graphics.
+//
+// Measures performance with different numbers of threads (1, 2, 4, 8)
+// and generates a speedup report comparing the results.
 func runBenchmark() {
 	coreConfigs := []int{1, 2, 4, 8}
 	results := make(map[int]time.Duration, 3)
@@ -436,10 +424,10 @@ func runBenchmark() {
 	generateSpeedupReport(results)
 }
 
-/**
- * @brief Generates a speedup report comparing performance with different thread counts
- * @param results Map of thread counts to execution times
- */
+// generateSpeedupReport generates a speedup report comparing performance with different thread counts.
+//
+// Parameters:
+//   - results: Map of thread counts to execution times
 func generateSpeedupReport(results map[int]time.Duration) {
 	baseTime := results[1].Seconds()
 	fmt.Println("\n=== Speedup Report ===")
@@ -455,19 +443,16 @@ func generateSpeedupReport(results map[int]time.Duration) {
 	}
 }
 
-/**
- * @brief Game structure for graphical rendering using Ebiten
- */
+// Game structure for graphical rendering using Ebiten
 type Game struct {
-	world    *World        ///< The Wa-Tor world simulation
-	fishImg  *ebiten.Image ///< Image for rendering fish
-	sharkImg *ebiten.Image ///< Image for rendering sharks
+	world    *World        // The Wa-Tor world simulation
+	fishImg  *ebiten.Image // Image for rendering fish
+	sharkImg *ebiten.Image // Image for rendering sharks
 }
 
-/**
- * @brief Creates a new Game instance
- * @return Pointer to the newly created Game
- */
+// NewGame creates a new Game instance.
+//
+// Returns a pointer to the newly created Game.
 func NewGame() *Game {
 	w := NewWorld(*windowWidth/pixSize, *windowHeight/pixSize, *threads)
 	w.InitPopulation(*numSharks, *numFish)
@@ -480,19 +465,18 @@ func NewGame() *Game {
 	return &Game{world: w, fishImg: fishImg, sharkImg: sharkImg}
 }
 
-/**
- * @brief Updates the game state (called each frame)
- * @return Error if any occurred
- */
+// Update updates the game state (called each frame).
+//
+// Returns an error if any occurred.
 func (g *Game) Update() error {
 	g.world.Update()
 	return nil
 }
 
-/**
- * @brief Renders the current state of the world
- * @param screen The target image to render to
- */
+// Draw renders the current state of the world.
+//
+// Parameters:
+//   - screen: The target image to render to
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.Black)
 	op := &ebiten.DrawImageOptions{}
@@ -512,22 +496,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
-/**
- * @brief Returns the game's logical screen size
- * @param outsideWidth Window width
- * @param outsideHeight Window height
- * @return Logical width and height
- */
+// Layout returns the game's logical screen size.
+//
+// Parameters:
+//   - outsideWidth: Window width
+//   - outsideHeight: Window height
+//
+// Returns the logical width and height.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return g.world.screenWidth, g.world.screenHeight
 }
 
-/**
- * @brief Main entry point of the application
- *
- * Parses command line arguments and starts either benchmark mode
- * or graphical simulation mode based on the -benchmark flag.
- */
+// main is the entry point of the application.
+//
+// Parses command line arguments and starts either benchmark mode
+// or graphical simulation mode based on the -benchmark flag.
 func main() {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
