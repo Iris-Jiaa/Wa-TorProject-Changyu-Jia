@@ -28,7 +28,7 @@ This project implements the **Wa-Tor simulation** as described in A.K. Dewdney's
 - **[go.sum](./go.sum)**: The file that ensures the integrity of the project's dependencies.
 - **[go.mod](./go.mod)**: The module file that defines the Go project's dependencies.
 - **[Wa-Tor Report.pdf](./Wa-Tor-Report.pdf)**: A document file containing the project report or analysis.
-- **[GoDocument](./GoDocument)**: A list of all Go packages in the project, along with their structures and all public types (structs, interfaces), variables, constants, functions and methods, along with their definitions and comments. You can open [Packages - Go Documentation Server.html](./GoDocument/Packages-GoDocumentation-Server.html) in your browser to view these contents.
+- **[GoDocument](./GoDocument)**: A list of all Go packages in the project, along with their structures and all public types (structs, interfaces), variables, constants, functions and methods, along with their definitions and comments. You can open [Packages - Go Documentation Server.html](./GoDocument/Packages---GoDocumentation-Server.html) in your browser to view these contents.
 
 ## Installation
 
