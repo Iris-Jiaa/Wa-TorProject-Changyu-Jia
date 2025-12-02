@@ -1,5 +1,8 @@
 # Wa-Tor
 
+**Name**: Changyu Jia <br>
+**Student ID**: C00292876 <br>
+
 A parallel implementation of the Wa-Tor ecological simulation in Go, featuring sharks and fish in a toroidal ocean world. This project demonstrates parallel computing concepts with performance analysis across multiple cores.
 
 ## Overview
